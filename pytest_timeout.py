@@ -46,6 +46,11 @@ used in the test.
 KNOWN_DEBUGGING_MODULES = {"pydevd", "bdb", "pydevd_frame_evaluator"}
 Settings = namedtuple("Settings", ["timeout", "method", "func_only"])
 
+def dummy_handler():
+    pass
+
+_DEFAULT_TIMEOUT_HANDLER = dummy_handler
+
 
 @pytest.hookimpl
 def pytest_addoption(parser):
