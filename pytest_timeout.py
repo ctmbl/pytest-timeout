@@ -45,7 +45,7 @@ used in the test.
 # bdb covers pdb, ipdb, and possibly others
 # pydevd covers PyCharm, VSCode, and possibly others
 KNOWN_DEBUGGING_MODULES = {"pydevd", "bdb", "pydevd_frame_evaluator"}
-Settings = namedtuple("Settings", ["timeout", "method", "func_only"])
+Settings = namedtuple("Settings", ["timeout", "method", "func_only", "handler"])
 
 def dummy_handler():
     pass
@@ -126,6 +126,7 @@ def pytest_configure(config):
     config._env_timeout = settings.timeout
     config._env_timeout_method = settings.method
     config._env_timeout_func_only = settings.func_only
+    config._env_timeout_handler = settings.handler
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -264,6 +265,7 @@ def pytest_timeout_set_timer(item, settings):
             timer.join()
 
         item.cancel_timeout = cancel
+        item.handle_timeout = settings.handler
         timer.start()
     return True
 
@@ -310,12 +312,16 @@ def get_env_settings(config):
         func_only = None
     if func_only is not None:
         func_only = _validate_func_only(func_only, "config file")
-    return Settings(timeout, method, func_only or False)
+    
+    # Can't come from .ini
+    handler = _DEFAULT_TIMEOUT_HANDLER
+    
+    return Settings(timeout, method, func_only or False, handler)
 
 
 def _get_item_settings(item, marker=None):
     """Return (timeout, method) for an item."""
-    timeout = method = func_only = None
+    timeout = method = func_only = handler = None
     if not marker:
         marker = item.get_closest_marker("timeout")
     if marker is not None:
@@ -323,6 +329,7 @@ def _get_item_settings(item, marker=None):
         timeout = _validate_timeout(settings.timeout, "marker")
         method = _validate_method(settings.method, "marker")
         func_only = _validate_func_only(settings.func_only, "marker")
+        handler = _validate_handler(settings.handler, "marker")
     if timeout is None:
         timeout = item.config._env_timeout
     if method is None:
@@ -331,7 +338,9 @@ def _get_item_settings(item, marker=None):
         func_only = item.config._env_timeout_func_only
     if func_only is None:
         func_only = False
-    return Settings(timeout, method, func_only)
+    if handler is None:
+        handler = item.config._env_timeout_handler # default value
+    return Settings(timeout, method, func_only, handler)
 
 
 def _parse_marker(marker):
@@ -342,7 +351,7 @@ def _parse_marker(marker):
     """
     if not marker.args and not marker.kwargs:
         raise TypeError("Timeout marker must have at least one argument")
-    timeout = method = func_only = NOTSET = object()
+    timeout = method = func_only = handler = NOTSET = object()
     for kw, val in marker.kwargs.items():
         if kw == "timeout":
             timeout = val
@@ -350,6 +359,8 @@ def _parse_marker(marker):
             method = val
         elif kw == "func_only":
             func_only = val
+        elif kw == "handler":
+            handler = val
         else:
             raise TypeError("Invalid keyword argument for timeout marker: %s" % kw)
     if len(marker.args) >= 1 and timeout is not NOTSET:
@@ -368,7 +379,9 @@ def _parse_marker(marker):
         method = None
     if func_only is NOTSET:
         func_only = None
-    return Settings(timeout, method, func_only)
+    if handler is NOTSET:
+        handler = None
+    return Settings(timeout, method, func_only, handler)
 
 
 def _validate_timeout(timeout, where):
@@ -456,6 +469,7 @@ def timeout_timer(item, timeout):
     except Exception:
         traceback.print_exc()
     finally:
+        item.handle_timeout()
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(1)
