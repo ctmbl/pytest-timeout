@@ -14,6 +14,7 @@ import sys
 import threading
 import traceback
 from collections import namedtuple
+from typing import Callable
 
 import pytest
 
@@ -393,6 +394,14 @@ def _validate_func_only(func_only, where):
     if not isinstance(func_only, bool):
         raise ValueError("Invalid func_only value %s from %s" % (func_only, where))
     return func_only
+
+
+def _validate_handler(handler, where):
+    if handler is None:
+        return None
+    if not isinstance(handler, Callable):
+        raise ValueError("Invalid handler %s from %s. Must be a Callable" % (handler, where))
+    return handler
 
 
 def timeout_sigalrm(item, timeout):
